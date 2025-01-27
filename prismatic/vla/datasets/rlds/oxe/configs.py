@@ -52,6 +52,20 @@ class ActionEncoding(IntEnum):
 
 # === Individual Dataset Configs ===
 OXE_DATASET_CONFIGS = {
+    "kit_irl_real_kitchen_lang": {
+        "image_obs_keys": {"primary": "image_top", "secondary": "image_side", "wrist": None},
+        "depth_obs_keys": {"primary": None, "secondary": None, "wrist": None},
+        "state_obs_keys": ["joint_state", None], # couldn't find gripper state in the RLDS dataset
+        "state_encoding": StateEncoding.JOINT,
+        "action_encoding": ActionEncoding.JOINT_POS,
+    },
+    # "kit_irl_real_kitchen_lang": {
+    #     "image_obs_keys": {"primary": "image_top", "secondary": "image_side", "wrist": None},
+    #     "depth_obs_keys": {"primary": None, "secondary": None, "wrist": None},
+    #     "state_obs_keys": ["end_effector_pos", "end_effector_ori", None, None], # couldn't find gripper state in the RLDS dataset
+    #     "state_encoding": StateEncoding.POS_EULER,
+    #     "action_encoding": ActionEncoding.EEF_POS,
+    # },
     "fractal20220817_data": {
         "image_obs_keys": {"primary": "image", "secondary": None, "wrist": None},
         "depth_obs_keys": {"primary": None, "secondary": None, "wrist": None},

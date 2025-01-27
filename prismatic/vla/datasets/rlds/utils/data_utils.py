@@ -103,7 +103,7 @@ def normalize_action_and_proprio(traj: Dict, metadata: Dict, normalization_type:
     raise ValueError(f"Unknown Normalization Type {normalization_type}")
 
 
-def binarize_gripper_actions(actions: tf.Tensor) -> tf.Tensor:
+def binarize_gripper_actions(actions: tf.Tensor, open_boundary: float = 0.95, close_boundary: float = 0.05) -> tf.Tensor:
     """
     Converts gripper actions from continuous to binary values (0 and 1).
 
@@ -124,12 +124,12 @@ def binarize_gripper_actions(actions: tf.Tensor) -> tf.Tensor:
                 carry = float(open_mask[i])
             new_actions[i] = carry
     """
-    open_mask, closed_mask = actions > 0.95, actions < 0.05
+    open_mask, closed_mask = actions > open_boundary, actions < close_boundary
     in_between_mask = tf.logical_not(tf.logical_or(open_mask, closed_mask))
-    is_open_float = tf.cast(open_mask, tf.float32)
+    is_open_float = tf.cast(open_mask, tf.float64)
 
     def scan_fn(carry, i):
-        return tf.cond(in_between_mask[i], lambda: tf.cast(carry, tf.float32), lambda: is_open_float[i])
+        return tf.cond(in_between_mask[i], lambda: tf.cast(carry, tf.float64), lambda: is_open_float[i])
 
     return tf.scan(scan_fn, tf.range(tf.shape(actions)[0]), actions[-1], reverse=True)
 

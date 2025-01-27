@@ -840,9 +840,33 @@ def libero_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
     trajectory["observation"]["gripper_state"] = trajectory["observation"]["state"][:, -2:]  # 2D gripper state
     return trajectory
 
+def kit_irl_real_kitchen_lang_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
+    # print(trajectory.keys())
+    # trajectory['frequency'] = tf.constant(10, dtype=tf.int32)
+    return trajectory
+
+
+def kit_irl_dataset_abs_joint_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
+    trajectory["action"] = tf.concat(
+        [
+            trajectory["action_joint_state"][:, :7],
+            binarize_gripper_actions(trajectory["action"][:, -1], 0.05, 0.01)[:, None],
+        ],
+        axis=-1,
+    )
+    trajectory["observation"]["proprio"] = tf.concat(
+        (
+            trajectory["observation"]["joint_state"][:, :],
+            binarize_gripper_actions(trajectory["action_abs"][:, -1], 0.05, 0.01)[:, None],
+        ),
+        axis=1
+    )
+    return trajectory
 
 # === Registry ===
 OXE_STANDARDIZATION_TRANSFORMS = {
+    # "kit_irl_real_kitchen_lang": kit_irl_real_kitchen_lang_dataset_transform,
+    "kit_irl_real_kitchen_lang": kit_irl_dataset_abs_joint_transform,
     "bridge_oxe": bridge_oxe_dataset_transform,
     "bridge_orig": bridge_orig_dataset_transform,
     "bridge_dataset": bridge_orig_dataset_transform,
