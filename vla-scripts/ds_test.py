@@ -33,6 +33,8 @@ import os.path
 import json_numpy
 import numpy as np
 
+from prismatic.vla.datasets.datasets import RLDSDataset
+
 json_numpy.patch()
 import json
 import logging
@@ -64,7 +66,7 @@ def get_openvla_prompt(instruction: str, openvla_path: Union[str, Path]) -> str:
 
 
 # === Server Interface ===
-class OpenVLAServer:
+class VLA:
     def __init__(self, openvla_path: Union[str, Path], attn_implementation: Optional[str] = "flash_attention_2", default_unnorm=None) -> Path:
         """
         A simple server for OpenVLA models; exposes `/act` to predict an action for a given image + instruction.
@@ -97,46 +99,25 @@ class OpenVLAServer:
         action = self.vla.predict_action(**inputs, unnorm_key=self.default_unnorm, do_sample=False)
 
     def predict_action(self, payload: Dict[str, Any]) -> str:
-        try:
-            if double_encode := "encoded" in payload:
-                # Support cases where `json_numpy` is hard to install, and numpy arrays are "double-encoded" as strings
-                assert len(payload.keys()) == 1, "Only uses encoded payload!"
-                payload = json.loads(payload["encoded"])
+        # Parse payload components
+        image, instruction = payload["image"], payload["instruction"]
+        unnorm_key = payload.get("unnorm_key", self.default_unnorm)
 
-            # Parse payload components
-            image, instruction = payload["image"], payload["instruction"]
-            unnorm_key = payload.get("unnorm_key", self.default_unnorm)
+        # Run VLA Inference
+        prompt = get_openvla_prompt(instruction, self.openvla_path)
+        inputs = self.processor(prompt, Image.fromarray(image).convert("RGB")).to(self.device, dtype=torch.bfloat16)
+        action = self.vla.predict_action(**inputs, unnorm_key=unnorm_key, do_sample=False)
 
-            # Run VLA Inference
-            prompt = get_openvla_prompt(instruction, self.openvla_path)
-            inputs = self.processor(prompt, Image.fromarray(image).convert("RGB")).to(self.device, dtype=torch.bfloat16)
-            action = self.vla.predict_action(**inputs, unnorm_key=unnorm_key, do_sample=False)
-            if double_encode:
-                return JSONResponse(json_numpy.dumps(action))
-            else:
-                return JSONResponse(action)
-        except:  # noqa: E722
-            logging.error(traceback.format_exc())
-            logging.warning(
-                "Your request threw an error; make sure your request complies with the expected format:\n"
-                "{'image': np.ndarray, 'instruction': str}\n"
-                "You can optionally an `unnorm_key: str` to specific the dataset statistics you want to use for "
-                "de-normalizing the output actions."
-            )
-            return "error"
-
-    def run(self, host: str = "0.0.0.0", port: int = 8000) -> None:
-        self.app = FastAPI()
-        self.app.post("/act")(self.predict_action)
-        uvicorn.run(self.app, host=host, port=port)
-
+        return action
 
 @dataclass
 class DeployConfig:
     # fmt: off
-    # openvla_path: Union[str, Path] = "openvla/openvla-7b"               # HF Hub Path (or path to local run directory)
-    openvla_path: Union[str, Path] = "/home/reuss/code/openvla/runs/openvla-7b+kit_irl_real_kitchen_lang+b4+lr-0.0005+lora-r32+dropout-0.0--image_aug"               # HF Hub Path (or path to local run directory)
-    default_unnorm = "kit_irl_real_kitchen_lang"
+    openvla_path: Union[str, Path] = "openvla/openvla-7b"               # HF Hub Path (or path to local run directory)
+    # openvla_path: Union[str, Path] = "/home/reuss/code/openvla/runs/openvla-7b+kit_irl_real_kitchen_lang+b4+lr-0.0005+lora-r32+dropout-0.0--image_aug"               # HF Hub Path (or path to local run directory)
+    default_unnorm = "bridge_orig"
+    # default_unnorm = "kit_irl_real_kitchen_lang"
+    # default_unnorm = None
 
     # Server Configuration
     host: str = "0.0.0.0"                                               # Host IP Address
@@ -147,9 +128,32 @@ class DeployConfig:
 
 @draccus.wrap()
 def deploy(cfg: DeployConfig) -> None:
-    server = OpenVLAServer(cfg.openvla_path, default_unnorm=cfg.default_unnorm)
-    server.run(cfg.host, port=cfg.port)
+    inst = VLA(cfg.openvla_path, default_unnorm=cfg.default_unnorm)
 
+    vla_dataset = RLDSDataset(
+        "/home/reuss/tensorflow_datasets",
+        "bridge_orig",
+        None,
+        resize_resolution=(224,224),
+        shuffle_buffer_size=100,
+        image_aug=None,
+    )
+
+
+    it = iter(vla_dataset.dataset)
+    sample = next(it)
+
+    payload = {}
+    payload['image'] = sample['observation']['image_primary'][0].numpy()
+    payload['instruction'] = sample['task']['language_instruction'].numpy().decode()
+
+    action = inst.predict_action(payload)
+
+    gt_action = sample['action'].numpy()
+
+    print(torch.nn.functional.mse_loss(action, gt_action))
+
+    0
 
 if __name__ == "__main__":
     deploy()
